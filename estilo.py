@@ -25,7 +25,38 @@ CODIGOS = {
     "cian": "96",
     "blanco": "97",
     "gris": "90",
+    "negro": "30",
+    "fondo_rojo": "41",
+    "fondo_verde": "42",
+    "fondo_amarillo": "43",
+    "fondo_azul": "44",
+    "fondo_magenta": "45",
+    "fondo_cian": "46",
+    "fondo_blanco": "47",
+    "fondo_gris": "100",
 }
+
+# Colores asignados a cada proceso (en orden de carga) para que se reconozca
+# igual en el mapa de memoria, el diagrama de Gantt y las tablas.
+PALETA_PROCESOS = ("cian", "amarillo", "verde", "azul", "rojo", "blanco")
+
+# Equivalentes ASCII de los caracteres especiales (mismo ancho: 1 a 1).
+_A_ASCII = str.maketrans({
+    "┌": "+", "┬": "+", "┐": "+", "├": "+", "┼": "+", "┤": "+",
+    "└": "+", "┴": "+", "┘": "+", "─": "-", "│": "|", "═": "=",
+    "█": "#", "░": ".", "▒": ":", "►": ">", "◄": "<", "·": ".",
+    "→": ">", "≤": "<",
+})
+
+
+def quitar_colores(texto: str) -> str:
+    """Elimina los codigos de color ANSI."""
+    return _PATRON_ANSI.sub("", texto)
+
+
+def a_ascii(texto: str) -> str:
+    """Reemplaza bordes y simbolos Unicode por equivalentes ASCII."""
+    return texto.translate(_A_ASCII)
 
 _BORDES_UNICODE = {
     "sup": ("┌", "┬", "┐"),
@@ -134,7 +165,7 @@ class Estilo:
         anchos = [len(str(nombre)) for nombre in encabezados]
         for fila in celdas:
             for indice, celda in enumerate(fila):
-                anchos[indice] = max(anchos[indice], len(str(celda.texto)))
+                anchos[indice] = max(anchos[indice], largo_visible(str(celda.texto)))
         ancho_interior = sum(anchos) + 3 * len(anchos) - 1
         if not celdas:
             ancho_extra = len(vacia) + 2 - ancho_interior

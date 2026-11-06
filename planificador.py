@@ -101,6 +101,9 @@ class PlanificadorSRTF:
         self.proceso_en_ejecucion: Optional[Proceso] = None
         self.cambios_contexto = 0
         self._cpu_ociosa_informada = False
+        # linea_tiempo[t] es el ID del proceso que uso la CPU en [t, t+1),
+        # o None si estuvo ociosa. Se usa para el diagrama de Gantt.
+        self.linea_tiempo: List[Optional[str]] = []
 
     @staticmethod
     def seleccionar_srtf(procesos: Sequence[Proceso]) -> Optional[Proceso]:
@@ -152,11 +155,13 @@ class PlanificadorSRTF:
         de memoria, las nuevas admisiones y el siguiente proceso en CPU.
         """
         if self.proceso_en_ejecucion is None:
+            self.linea_tiempo.append(None)
             self.reloj += 1
             return
 
         self._cpu_ociosa_informada = False
         proceso = self.proceso_en_ejecucion
+        self.linea_tiempo.append(proceso.id)
         if proceso.tiempo_inicio is None:
             proceso.tiempo_inicio = self.reloj
 

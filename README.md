@@ -34,10 +34,27 @@ opcion. Al elegir una opcion se limpia la pantalla:
 - `[0]` sale del simulador.
 
 Antes de empezar se muestra la tabla de procesos cargados. Durante la
-simulacion, Espacio/Enter avanza al siguiente cambio y `q` vuelve
-al menu. Funciona en Linux y tambien en Windows (`py main.py`).
+simulacion: Espacio/Enter avanza al siguiente cambio, `B` vuelve al paso
+anterior para revisarlo, `F` alterna entre historial y pantalla fija, y `q`
+vuelve al menu. Al terminar, `G` guarda la simulacion en `resultados/` como
+TXT y HTML con colores (o automaticamente con `--exportar`). La opcion 4 del
+menu (o `--pantalla-fija`) elige el modo de pantalla. Funciona en Linux y
+tambien en Windows (`py main.py`).
 
-## Colores y tablas
+## Colores, tablas y graficos
+
+Cada paso muestra, ademas de los eventos y las tablas:
+
+- `[SRTF]`: los candidatos ordenados por tiempo restante y el elegido,
+  aclarando cuando hay empate;
+- un **mapa de memoria** proporcional (SO, particiones con un color por
+  proceso y huecos libres), que marca la fragmentacion externa;
+- una **barra de progreso** por proceso y una marca `►` en los que cambiaron
+  de estado en ese paso;
+- el **uso de la CPU** desde `t = 0`.
+
+El informe final suma un grafico de barras de retorno y espera y el
+**diagrama de Gantt** completo.
 
 En una terminal, cada paso muestra los eventos con una etiqueta de color
 (LLEGADA, SUSPENSION, APROPIACION, FIN, etc.) y tablas con bordes para los
@@ -153,6 +170,7 @@ genera ejecutables para otro sistema: el de Linux se arma en Linux.
 - `panel.py`: panel de la terminal con tablas de procesos, particiones, CPU,
   cola LISTO y cola LISTO_SUSPENDIDO.
 - `estilo.py`: colores ANSI y tablas con bordes, sin librerias externas.
+- `exportar.py`: guarda la simulacion en TXT y HTML con colores.
 - `main.py`: menu, entrada e integracion de los modulos.
 - `empaquetar.py` y `kernelflow.spec`: ejecutable y paquete de entrega.
 

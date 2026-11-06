@@ -66,11 +66,36 @@ Pruebas automaticas:
 
 Durante la simulacion:
     Espacio o Enter   avanza al siguiente cambio relevante
+    B                 vuelve al paso anterior para revisarlo
+    F                 alterna entre historial y pantalla fija
     Q                 detiene la simulacion y vuelve al menu
 
+Al terminar (o al detenerla con Q):
+    G                 guarda la simulacion en la carpeta resultados/,
+                      como .txt y como .html con colores
+    Enter             vuelve al menu
+
+    [4] del menu      cambia entre HISTORIAL (los pasos quedan uno debajo
+                      del otro) y PANTALLA FIJA (se limpia en cada paso)
+
+Opciones de linea de comandos:
+    --sin-color       sin colores
+    --pantalla-fija   arranca en modo pantalla fija
+    --exportar        guarda TXT y HTML automaticamente al terminar
+
 La simulacion se detiene cada vez que llega o termina un proceso (y ante
-apropiaciones, admisiones o CPU ociosa). Al finalizar muestra el informe
-estadistico.
+apropiaciones, admisiones o CPU ociosa). Cada paso muestra:
+  - los eventos del paso con una etiqueta de color y su motivo;
+  - [SRTF]: los procesos candidatos ordenados por tiempo restante y cual
+    usa la CPU (y si hubo empate);
+  - el mapa de memoria: una barra proporcional con el SO, cada particion
+    y los huecos libres (marca la fragmentacion externa);
+  - la tabla de procesos (con barra de progreso y una marca en los que
+    cambiaron de estado) y la tabla de particiones;
+  - las tablas de CPU, cola LISTO y cola LISTO_SUSPENDIDO;
+  - el uso de la CPU desde t = 0 (Gantt compacto).
+Al finalizar muestra el informe estadistico, un grafico de barras de
+retorno y espera por proceso y el diagrama de Gantt completo.
 
 
 5. FORMATO DEL ARCHIVO CSV

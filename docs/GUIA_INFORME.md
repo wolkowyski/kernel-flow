@@ -3,6 +3,13 @@
 El informe final muestra el simulador funcionando con cada lote de prueba,
 como evidencia de que cumple la consigna. Esta guia indica que capturar.
 
+## Atajo: exportar a HTML
+
+Al terminar cada lote, presionar `G` (o ejecutar con `--exportar`): se guarda
+toda la simulacion en `resultados/` como HTML con colores. Abriendo ese HTML
+en el navegador se pueden sacar las capturas de cada paso con calidad y sin
+depender del tamanio de la terminal.
+
 ## Preparacion
 
 - Generar el ejecutable con `python3 empaquetar.py` y sacar las capturas

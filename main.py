@@ -1,15 +1,18 @@
 """Punto de entrada y menu de consola del simulador KernelFlow."""
 
 import argparse
+from contextlib import redirect_stdout
+import io
 import os
 from pathlib import Path
 import sys
 import textwrap
-from typing import Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from admision import Admision, ErrorAdmision
 from carga import ErrorCargaProcesos, cargar_procesos
-from estilo import Estilo, preparar_terminal
+from estilo import Estilo, a_ascii, preparar_terminal, quitar_colores
+from exportar import guardar_simulacion
 from memoria import GestorMemoria
 from panel import (
     PanelConsola,
@@ -31,8 +34,17 @@ DIRECTORIO_DATOS = DIRECTORIO_PROYECTO / "data"
 RUTA_CSV_PREDETERMINADA = DIRECTORIO_DATOS / "procesos_demo.csv"
 RUTA_LOGO_UTN = DIRECTORIO_DATOS / "logo_utn.txt"
 
+DIRECTORIO_RESULTADOS = DIRECTORIO_PROYECTO / "resultados"
+
 # Se define en main() segun la terminal y la opcion --sin-color.
 ESTILO = Estilo()
+# El panel siempre se arma con colores y bordes Unicode para poder exportarlo
+# a HTML; al mostrarlo se adapta a lo que soporta la terminal.
+ESTILO_COMPLETO = Estilo(color=True, unicode=True)
+# Pantalla fija: se limpia la terminal en cada paso (como un tablero).
+PANTALLA_FIJA = False
+# Guardar TXT y HTML automaticamente al terminar (opcion --exportar).
+EXPORTAR_AL_TERMINAR = False
 
 
 OPCIONES_MENU = (
@@ -54,6 +66,13 @@ OPCIONES_MENU = (
         "Ver guia rapida",
         "Explica el formato del CSV, las reglas del simulador (MVT, Best-Fit, "
         "SRTF, multiprogramacion 5), los estados y los controles.",
+    ),
+    (
+        "4",
+        "Cambiar modo de pantalla",
+        "Alterna entre HISTORIAL (los pasos quedan uno debajo del otro) y "
+        "PANTALLA FIJA (se limpia en cada paso, como un tablero). Tambien se "
+        "cambia con la tecla F durante la simulacion.",
     ),
     ("0", "Salir", "Cierra el simulador."),
 )
@@ -109,6 +128,10 @@ def _mostrar_menu() -> None:
         lineas.append("")
     _imprimir_bloque_centrado(lineas[:-1])
     print(simple)
+    _imprimir_linea_centrada(
+        e.c("Modo de pantalla actual: ", "gris")
+        + e.c("PANTALLA FIJA" if PANTALLA_FIJA else "HISTORIAL", "cian", "negrita")
+    )
 
 
 def _mostrar_guia_rapida() -> None:
@@ -174,9 +197,21 @@ def _mostrar_guia_rapida() -> None:
 
 7. Controles durante la simulacion
    Espacio, Enter o N: ver el siguiente cambio relevante.
+   B: volver al paso anterior para revisarlo (Espacio retoma).
+   F: alternar entre historial y pantalla fija (tablero).
    Q: detener la simulacion y volver al menu.
+   Al terminar (o al detenerla), G guarda la simulacion en la
+   carpeta resultados/ como TXT y como HTML con colores.
    El reloj avanza internamente; no hace falta pulsar una tecla
    por cada unidad de tiempo.
+
+8. Graficos
+   Mapa de memoria: barra proporcional con el SO, cada particion
+   (un color por proceso) y los huecos libres.
+   [SRTF]: candidatos ordenados por tiempo restante y el elegido.
+   Uso de la CPU: que proceso uso la CPU en cada instante.
+   Al final: grafico de barras de retorno/espera y diagrama de
+   Gantt con una fila por proceso.
 ============================================================"""
     _imprimir_bloque_centrado(guia.strip("\n").splitlines())
 
@@ -228,6 +263,115 @@ def _esperar_tecla_avance() -> bool:
         if tecla in ("q", "Q", "", "\x1b"):
             print()
             return False
+
+
+def _capturar(funcion: Callable, *argumentos) -> str:
+    """Ejecuta una funcion que imprime y retorna lo que imprimio."""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        funcion(*argumentos)
+    return buffer.getvalue()
+
+
+def _para_pantalla(texto: str) -> str:
+    """Adapta una pantalla a lo que soporta la terminal actual."""
+    if not ESTILO.color:
+        texto = quitar_colores(texto)
+    if not ESTILO.unicode:
+        texto = a_ascii(texto)
+    return texto
+
+
+def _mostrar_pantalla(texto: str, aviso: str = "") -> None:
+    if PANTALLA_FIJA:
+        _limpiar_pantalla()
+    if aviso:
+        print(_para_pantalla(ESTILO_COMPLETO.c(
+            f" {aviso} ".center(_ancho_terminal(), "◄"), "negro", "fondo_amarillo")))
+    print(_para_pantalla(texto), end="")
+
+
+def _aviso_revision(indice: int, total: int) -> str:
+    if indice >= total - 1:
+        return ""
+    actual = "los procesos cargados" if indice == 0 else f"el paso {indice}"
+    return (f"REVISANDO {actual.upper()} - la simulacion va por el paso "
+            f"{total - 1} - [Espacio] para volver a avanzar")
+
+
+def _navegar(pantallas: List[str], inicio: bool = False) -> bool:
+    """Atiende las teclas entre pasos. ``True`` avanza; ``False`` sale.
+
+    Espacio/Enter avanza, B vuelve al paso anterior (para revisar), F cambia
+    entre historial y pantalla fija y Q vuelve al menu.
+    """
+    global PANTALLA_FIJA
+    indice = len(pantallas) - 1
+    while True:
+        revisando = indice < len(pantallas) - 1
+        if inicio and not revisando:
+            avance = "comenzar la simulacion"
+        else:
+            avance = "paso siguiente" if revisando else "siguiente cambio"
+        fija = "SI" if PANTALLA_FIJA else "NO"
+        controles = (
+            f"[Espacio/Enter] {avance}   [B] paso anterior   "
+            f"[F] pantalla fija: {fija}   [Q] menu: "
+        )
+        print("\n" + _prefijo_centrado(_para_pantalla(
+            ESTILO_COMPLETO.c(controles, "cian"))), end="", flush=True)
+        tecla = _leer_tecla()
+        print()
+        if tecla in (" ", "\r", "\n", "n", "N"):
+            if not revisando:
+                return True
+            indice += 1
+        elif tecla in ("b", "B"):
+            if indice > 0:
+                indice -= 1
+        elif tecla in ("f", "F"):
+            PANTALLA_FIJA = not PANTALLA_FIJA
+        elif tecla in ("q", "Q", "", "\x1b"):
+            return False
+        else:
+            continue
+        _mostrar_pantalla(pantallas[indice], _aviso_revision(indice, len(pantallas)))
+
+
+def _exportar(pantallas: Sequence[str], ruta_csv: Path) -> None:
+    try:
+        ruta_txt, ruta_html = guardar_simulacion(
+            pantallas, DIRECTORIO_RESULTADOS, ruta_csv.name
+        )
+    except OSError as error:
+        _imprimir_linea_centrada(f"No se pudo guardar la simulacion: {error}")
+        return
+    _imprimir_linea_centrada("Simulacion guardada en:")
+    _imprimir_bloque_centrado((f"  {ruta_txt}", f"  {ruta_html}"))
+
+
+def _cierre(pantallas: Sequence[str], ruta_csv: Path, interactivo: bool) -> int:
+    """Ofrece guardar la simulacion y espera para volver al menu."""
+    if EXPORTAR_AL_TERMINAR:
+        _exportar(pantallas, ruta_csv)
+    if not interactivo:
+        return 0
+    guardada = EXPORTAR_AL_TERMINAR
+    while True:
+        if guardada:
+            opciones = "[Enter] volver al menu"
+        else:
+            opciones = ("[G] guardar la simulacion (TXT y HTML con colores)   "
+                        "[Enter] volver al menu")
+        print("\n" + _prefijo_centrado(_para_pantalla(
+            ESTILO_COMPLETO.c(opciones + ": ", "cian"))), end="", flush=True)
+        tecla = _leer_tecla()
+        print()
+        if tecla in ("g", "G") and not guardada:
+            _exportar(pantallas, ruta_csv)
+            guardada = True
+        elif tecla in (" ", "\r", "\n", "q", "Q", "", "\x1b"):
+            return 0
 
 
 def _contar_procesos(ruta: Path) -> str:
@@ -297,6 +441,7 @@ def _elegir_csv() -> Optional[Path]:
 
 def _menu_interactivo() -> int:
     """Permite elegir el archivo y volver al menu tras la simulacion."""
+    global PANTALLA_FIJA
     while True:
         _limpiar_pantalla()
         _mostrar_menu()
@@ -320,13 +465,16 @@ def _menu_interactivo() -> int:
             _mostrar_guia_rapida()
             input("\n" + _prefijo_centrado("Presione Enter para volver al menu..."))
             continue
+        elif opcion == "4":
+            PANTALLA_FIJA = not PANTALLA_FIJA
+            continue
         else:
             _imprimir_linea_centrada("Opcion no valida.")
             input(_prefijo_centrado("Presione Enter para continuar..."))
             continue
 
-        ejecutar_simulacion(ruta, modo_visual=True)
-        input("\n" + _prefijo_centrado("Presione Enter para volver al menu..."))
+        if ejecutar_simulacion(ruta, modo_visual=True) != 0:
+            input("\n" + _prefijo_centrado("Presione Enter para volver al menu..."))
 
 
 def crear_argumentos(argumentos: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -346,6 +494,16 @@ def crear_argumentos(argumentos: Optional[Sequence[str]] = None) -> argparse.Nam
         action="store_true",
         help="Muestra la salida sin colores (util si la terminal no los soporta).",
     )
+    analizador.add_argument(
+        "--pantalla-fija",
+        action="store_true",
+        help="Limpia la pantalla en cada paso, como un tablero (tecla F).",
+    )
+    analizador.add_argument(
+        "--exportar",
+        action="store_true",
+        help="Guarda la simulacion en resultados/ (TXT y HTML) al terminar.",
+    )
     return analizador.parse_args(argumentos)
 
 
@@ -363,64 +521,61 @@ def ejecutar_simulacion(ruta_csv: Path, modo_visual: bool = False) -> int:
     except ErrorAdmision as error:
         _imprimir_linea_centrada(f"Error: {error}")
         return 1
-    if modo_visual:
-        presentacion = PanelConsola(procesos, admision, memoria, ESTILO)
-    else:
+    if not modo_visual:
         presentacion = PresentacionConsola(procesos, admision, memoria)
-
-    presentacion.mostrar_inicio(ruta_csv)
-
-    if modo_visual:
-        eventos_paso = []
-        planificador = PlanificadorSRTF(admision, memoria, eventos_paso.append)
-        numero_paso = 0
-        interactivo = sys.stdin.isatty() and sys.stdout.isatty()
-        if interactivo:
-            print(
-                "\n" + _prefijo_centrado(
-                    "[Espacio/Enter] comenzar la simulacion  [q] volver al menu: "
-                ),
-                end="",
-                flush=True,
-            )
-            if not _esperar_tecla_avance():
-                return 0
-        while True:
-            # Los eventos de una finalizacion en t (producidos al ejecutar la
-            # unidad t-1) se muestran junto con los arribos del mismo t.
-            if admision.hay_procesos_pendientes():
-                planificador.procesar_instante()
-            if eventos_paso:
-                numero_paso += 1
-                presentacion.mostrar_paso(
-                    eventos_paso, planificador.reloj, numero_paso
-                )
-                eventos_paso.clear()
-                if interactivo and admision.hay_procesos_pendientes():
-                    if not _esperar_avance():
-                        _imprimir_linea_centrada(
-                            f"Simulacion detenida en t = {planificador.reloj}."
-                        )
-                        return 0
-            if not admision.hay_procesos_pendientes():
-                break
-            planificador.ejecutar_unidad()
-    else:
-        planificador = PlanificadorSRTF(
-            admision, memoria, presentacion.mostrar_evento
-        )
+        presentacion.mostrar_inicio(ruta_csv)
+        planificador = PlanificadorSRTF(admision, memoria, presentacion.mostrar_evento)
         planificador.simular()
+        presentacion.mostrar_fin(planificador.reloj)
+        return 0
 
-    presentacion.mostrar_fin(planificador.reloj)
-    return 0
+    panel = PanelConsola(procesos, admision, memoria, ESTILO_COMPLETO)
+    eventos_paso: List = []
+    planificador = PlanificadorSRTF(admision, memoria, eventos_paso.append)
+    panel.linea_tiempo = planificador.linea_tiempo
+    interactivo = sys.stdin.isatty() and sys.stdout.isatty()
+
+    # Cada pantalla se guarda para poder volver atras (B) y exportarla.
+    pantallas = [_capturar(panel.mostrar_inicio, ruta_csv)]
+    _mostrar_pantalla(pantallas[0])
+    if interactivo and not _navegar(pantallas, inicio=True):
+        return _cierre(pantallas, ruta_csv, interactivo)
+
+    numero_paso = 0
+    while True:
+        # Los eventos de una finalizacion en t (producidos al ejecutar la
+        # unidad t-1) se muestran junto con los arribos del mismo t.
+        if admision.hay_procesos_pendientes():
+            planificador.procesar_instante()
+        if eventos_paso:
+            numero_paso += 1
+            pantallas.append(_capturar(
+                panel.mostrar_paso, eventos_paso, planificador.reloj, numero_paso
+            ))
+            eventos_paso.clear()
+            _mostrar_pantalla(pantallas[-1])
+            if interactivo and not _navegar(pantallas):
+                _imprimir_linea_centrada(
+                    f"Simulacion detenida en t = {planificador.reloj}."
+                )
+                return _cierre(pantallas, ruta_csv, interactivo)
+        if not admision.hay_procesos_pendientes():
+            break
+        planificador.ejecutar_unidad()
+
+    pantallas.append(_capturar(panel.mostrar_fin, planificador.reloj))
+    _mostrar_pantalla(pantallas[-1])
+    return _cierre(pantallas, ruta_csv, interactivo)
 
 
 def main(argumentos: Optional[Sequence[str]] = None) -> int:
     """Ejecuta KernelFlow y retorna un codigo apto para la consola de Linux."""
-    global ESTILO
+    global ESTILO, PANTALLA_FIJA, EXPORTAR_AL_TERMINAR
     opciones = crear_argumentos(argumentos)
     preparar_terminal()
     ESTILO = Estilo.detectar(sin_color=opciones.sin_color)
+    PANTALLA_FIJA = opciones.pantalla_fija
+    EXPORTAR_AL_TERMINAR = opciones.exportar
     try:
         if opciones.archivo is not None:
             return ejecutar_simulacion(opciones.archivo, modo_visual=True)

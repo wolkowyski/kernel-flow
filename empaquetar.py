@@ -36,6 +36,7 @@ ARCHIVOS_FUENTE = (
     "presentacion.py",
     "panel.py",
     "estilo.py",
+    "exportar.py",
     "estadisticas.py",
     "kernelflow.spec",
     "empaquetar.py",
